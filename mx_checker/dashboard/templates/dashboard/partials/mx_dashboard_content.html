@@ -1,0 +1,123 @@
+
+<section class="stats">
+    <article class="stat">
+        <div class="stat-label">Total Domains</div>
+        <div class="stat-value">{{ total_domains }}</div>
+        <div class="stat-detail">Domains monitored</div>
+    </article>
+
+    <article class="stat">
+        <div class="stat-label">Correct MX Records</div>
+        <div class="stat-value">{{ correct_domains }}</div>
+        <div class="stat-detail">All expected records match</div>
+    </article>
+
+    <article class="stat">
+        <div class="stat-label">Partial Match</div>
+        <div class="stat-value">{{ partial_domains }}</div>
+        <div class="stat-detail">Some records still differ</div>
+    </article>
+
+    <article class="stat">
+        <div class="stat-label">Not Matching</div>
+        <div class="stat-value">{{ mismatch_domains }}</div>
+        <div class="stat-detail">No expected records match</div>
+    </article>
+</section>
+
+<div class="table-wrapper">
+    <table>
+        <thead>
+            <tr>
+                <th>Domain</th>
+                <th>Expected MX Entries</th>
+                <th>Current MX Entries</th>
+                <th>Progress</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for item in domain_results %}
+            <tr>
+                <td class="domain">{{ item.domain }}</td>
+
+                <td>
+                    <div class="mx-list">
+                        {% for mx in item.expected_mx %}
+                        <span class="mx-record">
+                            <span class="mx-priority">{{ mx.priority }}</span>
+                            {{ mx.exchange }}
+                        </span>
+                        {% empty %}
+                        <span class="muted">No expected records</span>
+                        {% endfor %}
+                    </div>
+                </td>
+
+                <td>
+                    <div class="mx-list">
+                        {% for mx in item.actual_mx %}
+                        <span class="mx-record">
+                            <span class="mx-priority">{{ mx.priority }}</span>
+                            {{ mx.exchange }}
+                        </span>
+                        {% empty %}
+                        <span class="muted">No current records</span>
+                        {% endfor %}
+                    </div>
+                </td>
+
+                <td class="progress-cell">
+                    <div class="progress-line">
+                        <div
+                            class="progress-track"
+                            role="progressbar"
+                            aria-label="MX record match progress for {{ item.domain }}"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            aria-valuenow="{{ item.progress }}"
+                        >
+                            <div
+                                class="progress-fill {{ item.progress_color }}"
+                                style="width: {{ item.progress }}%;"
+                            ></div>
+                        </div>
+
+                        <span class="progress-value">
+                            {{ item.progress }}%
+                        </span>
+                    </div>
+
+                    <small class="muted">
+                        {{ item.matched_count }}/{{ item.expected_count }} records
+                    </small>
+                </td>
+
+                <td>
+                    <span class="status {{ item.status }}">
+                        {% if item.status == "correct" %}
+                            ✓ Correct
+                        {% elif item.status == "partial" %}
+                            ⚠ Partial
+                        {% elif item.status == "mismatch" %}
+                            ✕ Mismatch
+                        {% else %}
+                            — No expected records
+                        {% endif %}
+                    </span>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="5">No domains configured yet.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="footer">
+    Overall record match rate: <strong>{{ overall_progress }}%</strong>
+    · Automatically refreshed every 5 minutes.
+</div>
