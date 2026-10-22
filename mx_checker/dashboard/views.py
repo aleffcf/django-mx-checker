@@ -1,124 +1,95 @@
 
 from django.shortcuts import render
 from django.utils import timezone
-from .models import Domain
+from .models import Domain, MXCheck, Record, ExpectedMX
+from django.db.models import OuterRef, Subquery, Prefetch
 
+def dashboard_view(request):
+    latest_check = MXCheck.objects.filter(
+        domain_id=OuterRef("pk")
+    ).order_by("-checked_at", "-pk")
 
-def build_domain_result(domain, expected_mx, actual_mx):
-    # An MX record matches only if both priority and exchange match.
-    # Sets handle DNS ordering differences and duplicate records.
-    expected = {
-        (mx["priority"], mx["exchange"].rstrip(".").lower())
-        for mx in expected_mx
-    }
-    actual = {
-        (mx["priority"], mx["exchange"].rstrip(".").lower())
-        for mx in actual_mx
-    }
+    latest_check_id = Subquery(latest_check.values("id")[:1])
 
-    matched = expected & actual
-    expected_count = len(expected)
-
-    progress = (
-        round(len(matched) / expected_count * 100)
-        if expected_count else 0
+    domains = (
+        Domain.objects
+        .annotate(
+            last_check_id=latest_check_id,
+            last_check_status=Subquery(
+                latest_check.values("status")[:1]
+            ),
+            last_comparison_status=Subquery(
+                latest_check.values("comparison_status")[:1]
+            ),
+            last_checked_at=Subquery(
+                latest_check.values("checked_at")[:1]
+            ),
+        )
+        .prefetch_related(
+            Prefetch(
+                "expected_mx_records",
+                queryset=ExpectedMX.objects.order_by(
+                    "priority", "exchange"
+                ),
+                to_attr="expected_mx_list",
+            ),
+            Prefetch(
+                "checks",
+                queryset=MXCheck.objects.filter(
+                    pk__in=Subquery(
+                        MXCheck.objects.filter(
+                            domain_id=OuterRef("domain_id")
+                        )
+                        .order_by("-checked_at", "-pk")
+                        .values("pk")[:1]
+                    )
+                ).prefetch_related(
+                    Prefetch(
+                        "records",
+                        queryset=Record.objects.order_by(
+                            "priority", "mx_entry"
+                        ),
+                        to_attr="mx_record_list",
+                    )
+                ),
+                to_attr="latest_checks",
+            ),
+        )
+        .order_by("domain_name")
     )
 
-    if not expected:
-        status = "empty"
-    elif matched == expected:
-        status = "correct"
-    elif matched:
-        status = "partial"
-    else:
-        status = "mismatch"
+    total = domains.count()
+    migrated = pending = failures = unchecked = 0
 
-    return {
-        "domain": domain,
-        "expected_mx": expected_mx,
-        "actual_mx": actual_mx,
-        "expected_count": expected_count,
-        "matched_count": len(matched),
-        "progress": progress,
-        "status": status,
-        "progress_color": (
-            "green" if status == "correct"
-            else "amber" if status == "partial"
-            else "red"
-        ),
-    }
-
-
-def get_dashboard_data():
-    # Replace these examples with your database and DNS resolver.
-    '''
-    domains = [
-        {
-            "domain": "example.com",
-            "expected_mx": [
-                {"priority": 10, "exchange": "mx1.example.com"},
-                {"priority": 20, "exchange": "mx2.example.com"},
-            ],
-            "actual_mx": [
-                {"priority": 10, "exchange": "mx1.example.com"},
-                {"priority": 20, "exchange": "mx2.example.com"},
-            ],
-        },
-        {
-            "domain": "example.org",
-            "expected_mx": [
-                {"priority": 10, "exchange": "mx1.example.org"},
-                {"priority": 20, "exchange": "mx2.example.org"},
-            ],
-            "actual_mx": [
-                {"priority": 10, "exchange": "mx1.example.org"},
-            ],
-        },
-    ]
-    '''
-
-    domains = Domain.objects.all()
-
-    results = [
-        build_domain_result(
-            d["domain_name"], #d["expected_mx"], d["actual_mx"]
+    for domain in domains:
+        domain.latest_check = (
+            domain.latest_checks[0] if domain.latest_checks else None
         )
-        for d in domains
-    ]
 
-    total = len(results)
-    correct = sum(r["status"] == "correct" for r in results)
-    partial = sum(r["status"] == "partial" for r in results)
-    mismatch = sum(r["status"] == "mismatch" for r in results)
+        if domain.latest_check is None:
+            unchecked += 1
+        elif domain.last_check_status != "success":
+            failures += 1
+        elif domain.last_comparison_status == "ok":
+            migrated += 1
+        elif domain.last_comparison_status == "mismatch":
+            pending += 1
+        else:
+            unchecked += 1
 
-    expected_total = sum(r["expected_count"] for r in results)
-    matched_total = sum(r["matched_count"] for r in results)
+    evaluated = migrated + pending
+    progress = round(migrated / evaluated * 100, 1) if evaluated else 0
 
-    return {
-        "domain_results": results,
-        "total_domains": total,
-        "correct_domains": correct,
-        "partial_domains": partial,
-        "mismatch_domains": mismatch,
-        "overall_progress": (
-            round(matched_total / expected_total * 100)
-            if expected_total else 0
-        ),
-        "last_updated": timezone.now(),
-    }
-
-
-def mx_dashboard(request):
-    context = get_dashboard_data()
-    return render(request, "dashboard/mx_dashboard.html", context)
-
-
-def mx_dashboard_data(request):
-    context = get_dashboard_data()
-
-    # Return only the content that HTMX replaces.
     return render(
         request,
-        "dashboard/partials/mx_dashboard_content.html",
-        context,
+        "dashboard/dashboard.html",
+        {
+            "domains": domains,
+            "total": total,
+            "migrated": migrated,
+            "pending": pending,
+            "failures": failures,
+            "unchecked": unchecked,
+            "progress": progress,
+        },
     )

@@ -1,0 +1,7 @@
+asgiref==3.12.1
+click==8.5.0
+Django==6.1.2
+dnspython==2.9.0
+gunicorn==26.2.0
+h11==0.16.0
+sqlparse==0.6.0

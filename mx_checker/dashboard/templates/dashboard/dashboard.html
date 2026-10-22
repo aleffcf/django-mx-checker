@@ -1,0 +1,203 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Monitoramento de MX</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 32px auto;
+            padding: 0 20px;
+            color: #222;
+            background: #f7f8fa;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 1px 4px #0001;
+        }
+
+        .number {
+            font-size: 28px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        .success { color: #16803c; }
+        .warning { color: #a16207; }
+        .error { color: #b91c1c; }
+
+        .progress {
+            background: #e5e7eb;
+            border-radius: 8px;
+            height: 12px;
+            overflow: hidden;
+            margin-top: 12px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: #16a34a;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            margin-top: 24px;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        th { background: #eef0f3; }
+
+        @media (max-width: 600px) {
+            table { font-size: 13px; }
+            th, td { padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Monitoramento de migração MX</h1>
+    <p>Acompanhamento dos registros DNS dos domínios cadastrados.</p>
+
+    <div class="cards">
+        <div class="card">
+            Total de domínios
+            <div class="number">{{ total }}</div>
+        </div>
+
+        <div class="card">
+            <span class="success">Migrados</span>
+            <div class="number success">{{ migrated }}</div>
+        </div>
+
+        <div class="card">
+            <span class="warning">Pendentes</span>
+            <div class="number warning">{{ pending }}</div>
+        </div>
+
+        <div class="card">
+            <span class="error">Falhas DNS</span>
+            <div class="number error">{{ failures }}</div>
+        </div>
+
+        <div class="card">
+            Sem verificação válida
+            <div class="number">{{ unchecked }}</div>
+        </div>
+    </div>
+
+    <section class="card">
+        <strong>Progresso confirmado: {{ progress }}%</strong>
+        <div class="progress">
+            <div class="progress-bar"
+                 style="width: {{ progress }}%"></div>
+        </div>
+        <p>
+            {{ migrated }} de {{ migrated|add:pending }} domínios
+            com consulta válida correspondem à configuração esperada.
+        </p>
+    </section>
+
+    <h2>Domínios</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Domínio</th>
+                <th>MX esperado</th>
+                <th>MX atual</th>
+                <th>Última verificação</th>
+                <th>Resultado DNS</th>
+                <th>Comparação MX</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for domain in domains %}
+                <tr>
+                    <td>{{ domain.domain_name }}</td>
+
+                    <td>
+                        {% for mx in domain.expected_mx_list %}
+                            <div>{{ mx.priority }} {{ mx.exchange }}</div>
+                        {% empty %}
+                            <span>Não configurado</span>
+                        {% endfor %}
+                    </td>
+
+                    <td>
+                        {% if domain.latest_check and domain.last_check_status == "success" %}
+                            {% for mx in domain.latest_check.mx_record_list %}
+                                <div>{{ mx.priority }} {{ mx.mx_entry }}</div>
+                            {% empty %}
+                                <span>Sem registros MX</span>
+                            {% endfor %}
+                        {% elif domain.last_check_status == "no_mx" %}
+                            <span>Sem registros MX</span>
+                        {% elif domain.last_check_status == "nxdomain" %}
+                            <span>Domínio inexistente</span>
+                        {% elif domain.latest_check %}
+                            <span>Falha na consulta DNS</span>
+                        {% else %}
+                            <span>Não consultado</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if domain.last_checked_at %}
+                            {{ domain.last_checked_at|date:"d/m/Y H:i" }}
+                        {% else %}
+                            Nunca
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if not domain.last_check_id %}
+                            Sem verificação
+                        {% elif domain.last_check_status == "success" %}
+                            Consulta OK
+                        {% elif domain.last_check_status == "no_mx" %}
+                            Sem registros MX
+                        {% elif domain.last_check_status == "nxdomain" %}
+                            Domínio inexistente
+                        {% else %}
+                            Erro DNS
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if domain.last_check_status == "success" and domain.last_comparison_status == "ok" %}
+                            <span class="success">Migrado</span>
+                        {% elif domain.last_check_status == "success" and domain.last_comparison_status == "mismatch" %}
+                            <span class="warning">Pendente</span>
+                        {% else %}
+                            <span class="error">Não confirmado</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="6">Nenhum domínio cadastrado.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
